@@ -10,7 +10,6 @@ use Foo\Bar\EloquentModelNamespacedStub;
 use Illuminate\Contracts\Database\Eloquent\Castable;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Database\Eloquent\CastsInboundAttributes;
-use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionResolverInterface;
@@ -47,12 +46,13 @@ use Illuminate\Database\Query\Grammars\Grammar;
 use Illuminate\Database\Query\Processors\Processor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection as BaseCollection;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Fluent;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\InteractsWithTime;
 use Illuminate\Support\Stringable;
 use Illuminate\Support\Uri;
+use Illuminate\Tests\Database\stubs\TestCast;
+use Illuminate\Tests\Database\stubs\TestValueObject;
 use InvalidArgumentException;
 use LogicException;
 use Mockery as m;
@@ -1702,6 +1702,27 @@ class DatabaseEloquentModelTest extends TestCase
         Model::preventSilentlyDiscardingAttributes(false);
     }
 
+    public function testGuardedWithFillableConfig(): void
+    {
+        $model = new EloquentModelStub;
+        $model::unguard();
+
+        EloquentModelStub::setConnectionResolver($resolver = m::mock(Resolver::class));
+        $resolver->shouldReceive('connection')->andReturn($connection = m::mock(stdClass::class));
+        $connection->shouldReceive('getSchemaBuilder->getColumnListing')->andReturn(['name', 'age', 'foo']);
+
+        $model->guard([]);
+        $model->fillable(['name']);
+        $model->fill(['name' => 'Leto Atreides', 'age' => 51]);
+
+        self::assertSame(
+            ['name' => 'Leto Atreides', 'age' => 51],
+            $model->getAttributes(),
+        );
+
+        $model::reguard();
+    }
+
     public function testUsesOverriddenHandlerWhenDiscardingAttributes()
     {
         EloquentModelStub::setConnectionResolver($resolver = m::mock(Resolver::class));
@@ -2823,6 +2844,17 @@ class DatabaseEloquentModelTest extends TestCase
         $this->assertEquals($model->getCasts()['bar'], 'MyClass:myArgumentA,myArgumentB');
     }
 
+    public function testUnsetCastAttributes()
+    {
+        $model = new EloquentModelCastingStub;
+        $model->asToObjectCast = TestValueObject::make([
+            'myPropertyA' => 'A',
+            'myPropertyB' => 'B',
+        ]);
+        unset($model->asToObjectCast);
+        $this->assertArrayNotHasKey('asToObjectCast', $model->getAttributes());
+    }
+
     public function testUpdatingNonExistentModelFails()
     {
         $model = new EloquentModelStub;
@@ -3837,6 +3869,7 @@ class EloquentModelCastingStub extends Model
             'asCustomEnumArrayObjectAttribute' => AsEnumArrayObject::of(StringStatus::class),
             'singleElementInArrayAttribute' => [AsCollection::class],
             'duplicatedAttribute' => 'int',
+            'asToObjectCast' => TestCast::class,
         ];
     }
 
